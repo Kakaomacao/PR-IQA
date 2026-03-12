@@ -1,0 +1,46 @@
+# PR-IQA Default Configuration
+# ================================
+
+# Model
+model:
+  dim: 48
+  num_blocks: [2, 3, 3, 4]
+  heads: [1, 2, 4, 8]
+  ffn_expansion_factor: 2.66
+  bias: false
+  layernorm_type: WithBias
+  use_partial_conv: true
+  out_channels: 1
+  inp_channels: 4
+
+# Training
+training:
+  batch_size: 8
+  lr: 1.0e-4
+  weight_decay: 0.0
+  grad_clip: 1.0
+  epochs: 3
+  amp: true
+  img_size: 224
+  seed: 42
+  num_workers: 8
+
+  # Loss weights
+  lambda_jsd: 1.0
+  lambda_l1: 0.5
+  lambda_pearson: 0.25
+
+  # Scheduler
+  scheduler: CosineAnnealingWarmRestarts
+  eta_min: 1.0e-6
+
+# Inference
+inference:
+  img_size: 256
+  output_size: [294, 518]
+  amp: true
+
+# ImageNet normalization (for RGB inputs)
+normalization:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]

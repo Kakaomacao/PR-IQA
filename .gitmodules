@@ -1,0 +1,7 @@
+[submodule "submodules/vggt"]
+	path = submodules/vggt
+	url = https://github.com/facebookresearch/vggt.git
+
+[submodule "submodules/loftup"]
+	path = submodules/loftup
+	url = https://github.com/andrehuang/loftup.git
