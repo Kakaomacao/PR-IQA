@@ -34,10 +34,10 @@ conda create -n priqa python=3.10 -y
 conda activate priqa
 
 # Install PyTorch (adjust for your CUDA version)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
-# Install dependencies
-pip install -r requirements.txt
+# Install PyTorch3D (>=0.7.0)
+pip install "git+https://github.com/facebookresearch/pytorch3d.git" --no-build-isolation
 
 # Install PR-IQA package
 pip install -e .
@@ -146,27 +146,20 @@ training_data/
 | Masked L1 | 0.5 | L1 loss weighted by the overlap mask |
 | Pearson | 0.25 | Pearson correlation coefficient (structural similarity) |
 
-## Partial Map Generation (Optional)
+## Partial Map Generation
 
-To generate training data (partial quality maps) from scratch, you need additional dependencies:
-
-```bash
-# Install submodules
-git submodule update --init --recursive
-
-# Additional dependencies
-pip install pytorch3d einops
-```
+Generate training data (partial quality maps) using FeatureMetric (DINOv2 + VGGT + PyTorch3D):
 
 ```bash
 python scripts/generate_partial_maps.py \
-    --image_dir /path/to/images \
-    --output_dir /path/to/output \
-    --vggt_weights facebook/VGGT-1B
+    --scene_dir /path/to/scene \
+    --output_dir /path/to/output
 ```
 
-This step requires: `vggt` (submodule), `loftup` (submodule), `pytorch3d`.
-The core model (training and inference) does **not** require these.
+Requires `vggt` and `loftup` submodules:
+```bash
+git submodule update --init --recursive
+```
 
 ## Project Structure
 
@@ -184,7 +177,8 @@ PR-IQA/
 ├── train.py                   # DDP training script
 ├── inference.py               # Single / batch inference
 ├── scripts/
-│   └── generate_partial_maps.py
+│   ├── generate_partial_maps.py
+│   └── run_priqa_pipeline.py
 ├── configs/
 │   └── default.yaml
 ├── checkpoints/
@@ -212,13 +206,10 @@ Key defaults:
 
 ## Requirements
 
-**Core** (model + training + inference):
 - PyTorch >= 2.0
 - torchvision >= 0.15
 - einops >= 0.7.0
 - xformers >= 0.0.22
-
-**Partial map generation** (optional):
 - pytorch3d >= 0.7.0
 - vggt (submodule)
 - loftup (submodule)

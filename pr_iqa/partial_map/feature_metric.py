@@ -18,6 +18,7 @@ Dependencies (Level 1):
   - PyTorch3D
 """
 
+import sys
 import torch
 from torch import Tensor
 from torch.nn import Module
@@ -26,23 +27,64 @@ from typing import Optional, Tuple, Union
 from pathlib import Path
 from einops import rearrange
 
-# VGGT
-from vggt.vggt.models.vggt import VGGT
-from vggt.vggt.utils.pose_enc import pose_encoding_to_extri_intri
-from vggt.vggt.utils.geometry import unproject_depth_map_to_point_map
+# Auto-detect submodule paths
+_THIS_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _THIS_DIR.parent.parent
+_SUBMODULES = _REPO_ROOT / "submodules"
 
-# LoftUp
-from loftup.featurizers import get_featurizer
-from loftup.upsamplers import norm
+if (_SUBMODULES / "vggt").exists():
+    sys.path.insert(0, str(_SUBMODULES / "vggt"))
+if (_SUBMODULES / "loftup").exists():
+    sys.path.insert(0, str(_SUBMODULES / "loftup"))
 
-# PyTorch3D
-from pytorch3d.structures import Pointclouds
-from pytorch3d.renderer import (
-    PointsRasterizationSettings,
-    PointsRasterizer,
-    AlphaCompositor,
-)
-from pytorch3d.renderer.camera_conversions import _cameras_from_opencv_projection
+# Lazy imports for heavy dependencies — loaded on first use
+_VGGT = None
+_LOFTUP_FEATURIZERS = None
+_LOFTUP_UPSAMPLERS = None
+_PYTORCH3D = None
+
+
+def _import_vggt():
+    global _VGGT
+    if _VGGT is None:
+        from vggt.models.vggt import VGGT as _V
+        from vggt.utils.pose_enc import pose_encoding_to_extri_intri as _pe
+        from vggt.utils.geometry import unproject_depth_map_to_point_map as _ud
+        from vggt.utils.load_fn import load_and_preprocess_images as _lpi
+        _VGGT = {"VGGT": _V, "pose_encoding_to_extri_intri": _pe,
+                 "unproject_depth_map_to_point_map": _ud,
+                 "load_and_preprocess_images": _lpi}
+    return _VGGT
+
+
+def _import_loftup():
+    global _LOFTUP_FEATURIZERS, _LOFTUP_UPSAMPLERS
+    if _LOFTUP_FEATURIZERS is None:
+        from featurizers import get_featurizer as _gf
+        from upsamplers import norm as _n
+        _LOFTUP_FEATURIZERS = _gf
+        _LOFTUP_UPSAMPLERS = _n
+    return _LOFTUP_FEATURIZERS, _LOFTUP_UPSAMPLERS
+
+
+def _import_pytorch3d():
+    global _PYTORCH3D
+    if _PYTORCH3D is None:
+        from pytorch3d.structures import Pointclouds
+        from pytorch3d.renderer import (
+            PointsRasterizationSettings,
+            PointsRasterizer,
+            AlphaCompositor,
+        )
+        from pytorch3d.renderer.camera_conversions import _cameras_from_opencv_projection
+        _PYTORCH3D = {
+            "Pointclouds": Pointclouds,
+            "PointsRasterizationSettings": PointsRasterizationSettings,
+            "PointsRasterizer": PointsRasterizer,
+            "AlphaCompositor": AlphaCompositor,
+            "_cameras_from_opencv_projection": _cameras_from_opencv_projection,
+        }
+    return _PYTORCH3D
 
 
 class FeatureMetric(Module):
@@ -71,6 +113,8 @@ class FeatureMetric(Module):
     ) -> None:
         super().__init__()
         self.img_size = img_size
+
+        get_featurizer, _ = _import_loftup()
         self.feature_backbone, self.patch_size, self.dim = get_featurizer(feature_backbone)
 
         self.upsampler = (
@@ -80,11 +124,13 @@ class FeatureMetric(Module):
         self.use_loftup = use_loftup
 
         if use_vggt:
-            self.vggt = VGGT.from_pretrained(vggt_weights)
+            vggt_mod = _import_vggt()
+            self.vggt = vggt_mod["VGGT"].from_pretrained(vggt_weights)
 
-        self.compositor = AlphaCompositor()
+        p3d = _import_pytorch3d()
+        self.compositor = p3d["AlphaCompositor"]()
 
-    def _render(self, point_clouds: Pointclouds, **kwargs):
+    def _render(self, point_clouds, **kwargs):
         """Render point cloud features to images."""
         with torch.autocast("cuda", enabled=False):
             fragments = self.rasterizer(point_clouds, **kwargs)
@@ -124,15 +170,17 @@ class FeatureMetric(Module):
             (score_scalar, overlap_mask, score_map, projections)
         """
         k, c, h, w = images.shape
+        p3d = _import_pytorch3d()
+        _, norm_fn = _import_loftup()
 
         # Setup rasterizer
-        raster_settings = PointsRasterizationSettings(
+        raster_settings = p3d["PointsRasterizationSettings"](
             image_size=(h, w), radius=0.01, points_per_pixel=10, bin_size=0,
         )
-        self.rasterizer = PointsRasterizer(cameras=None, raster_settings=raster_settings)
+        self.rasterizer = p3d["PointsRasterizer"](cameras=None, raster_settings=raster_settings)
 
         # Extract features
-        images_norm = norm(images)
+        images_norm = norm_fn(images)
         hr_feats = []
         for i in range(k):
             img = images_norm[i:i + 1]
@@ -153,11 +201,19 @@ class FeatureMetric(Module):
             cosine_sim = dot / (tgt_norm * ref_norm + 1e-8)
             score_map = torch.clamp(cosine_sim, min=0.0, max=1.0)
 
-            H_out, W_out = 518, 294
-            score_map = score_map.reshape(W_out, H_out).unsqueeze(0)
+            if self.use_loftup and self.upsampler is not None:
+                H_out, W_out = h, w
+            else:
+                H_out = h // self.patch_size
+                W_out = w // self.patch_size
+            score_map = score_map.reshape(H_out, W_out).unsqueeze(0)
             return score_map.mean().item(), None, score_map if return_score_map else None, None
 
         # Full 3D partial map generation
+        vggt_mod = _import_vggt()
+        pose_encoding_to_extri_intri = vggt_mod["pose_encoding_to_extri_intri"]
+        unproject_depth_map_to_point_map = vggt_mod["unproject_depth_map_to_point_map"]
+
         preds = self.vggt(images)
         extrinsic, intrinsic = pose_encoding_to_extri_intri(preds["pose_enc"], images.shape[-2:])
         depth, depth_conf = preds["depth"], preds["depth_conf"]
@@ -180,9 +236,9 @@ class FeatureMetric(Module):
                 valid = mask_flat[i]
                 points_list.append(pts_flatten[i][valid])
                 features_list.append(hr_feats[i][valid])
-            point_clouds = Pointclouds(points=points_list, features=features_list)
+            point_clouds = p3d["Pointclouds"](points=points_list, features=features_list)
         else:
-            point_clouds = Pointclouds(points=pts_flatten, features=hr_feats)
+            point_clouds = p3d["Pointclouds"](points=pts_flatten, features=hr_feats)
 
         # Render from target viewpoint
         extrinsic, intrinsic = pose_encoding_to_extri_intri(preds["pose_enc"], images.shape[-2:])
@@ -195,7 +251,7 @@ class FeatureMetric(Module):
         K_repeat = K0.unsqueeze(0).repeat(B, 1, 1)
         im_size = torch.tensor([[h, w]]).repeat(B, 1).to(device)
 
-        cameras_p3d = _cameras_from_opencv_projection(R_repeat, T_repeat, K_repeat, im_size)
+        cameras_p3d = p3d["_cameras_from_opencv_projection"](R_repeat, T_repeat, K_repeat, im_size)
 
         with torch.autocast("cuda", enabled=False):
             bg_color = torch.tensor(

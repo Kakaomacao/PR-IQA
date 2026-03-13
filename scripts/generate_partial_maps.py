@@ -121,30 +121,6 @@ def main():
                     mask_path.parent.mkdir(parents=True, exist_ok=True)
                     Image.fromarray(msk_uint8, mode="L").save(mask_path)
 
-            # Compute total_map (fast cosine mode)
-            try:
-                tgt_orig = np.array(Image.open(tgt_path).convert("RGB"))
-                tgt_orig_t = torch.from_numpy(tgt_orig).permute(2, 0, 1).float() / 255.0
-                diff_t = torch.from_numpy(np.array(Image.open(diff_path).convert("RGB"))).permute(2, 0, 1).float() / 255.0
-                pair = torch.stack([tgt_orig_t, diff_t], dim=0).to(device)
-
-                score, _, total_smap, _ = metric(
-                    device=device,
-                    images=pair,
-                    return_score_map=True,
-                    partial_generation=False,
-                )
-            except Exception as e:
-                print(f"  [WARN] total_map failed for {diff_stem}: {e}")
-                continue
-
-            if total_smap is not None:
-                tmap = total_smap[0].cpu().numpy()
-                tmap_uint8 = (np.clip(tmap, 0, 1) * 255).astype(np.uint8)
-                tmap_path = output_dir / "total_map" / tgt_stem / f"{diff_stem}.png"
-                tmap_path.parent.mkdir(parents=True, exist_ok=True)
-                Image.fromarray(tmap_uint8, mode="L").save(tmap_path)
-
         print(f"  [OK] {tgt_stem}: {len(diff_images)} diffusion images processed")
 
     print("[DONE] Partial map generation complete")

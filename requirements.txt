@@ -1,22 +1,23 @@
 # PR-IQA Requirements
 # ====================
 
-# Core (Level 0: HINT model only)
+# Core (inference + partial map generation)
 torch>=2.0
 torchvision>=0.15
 einops>=0.7.0
 xformers>=0.0.22
-
-# Training
+pytorch3d>=0.7.0
+jaxtyping
 tqdm
-tensorboard
-pyyaml
 pillow
+numpy
+matplotlib
+huggingface_hub
+safetensors
+timm
 
-# Partial map generation (Level 1)
-# Uncomment if using FeatureMetric for training data generation:
-# pytorch3d>=0.7.0
-# jaxtyping
-# numpy
+# Training (optional)
+# tensorboard
+# pyyaml
 
 # VGGT and LoftUp are installed as submodules (see submodules/)
