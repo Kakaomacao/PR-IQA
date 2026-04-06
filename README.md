@@ -1,6 +1,11 @@
 # <img src="assets/pr-iqa.png" width="32"> PR-IQA: Partial-Reference Image Quality Assessment
 
 <p align="center">
+  <a href="https://kakaomacao.github.io/pr-iqa-project-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
+  <a href="#"><img src="https://img.shields.io/badge/arXiv-coming%20soon-lightgrey" alt="arXiv"></a>
+</p>
+
+<p align="center">
   <img src="assets/F1_Main.png" width="100%">
 </p>
 
