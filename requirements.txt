@@ -15,6 +15,7 @@ matplotlib
 huggingface_hub
 safetensors
 timm
+gradio>=5.0
 
 # Training (optional)
 # tensorboard
