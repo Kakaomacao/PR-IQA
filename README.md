@@ -1,5 +1,9 @@
 # <img src="assets/pr-iqa.png" width="32"> PR-IQA: Partial-Reference Image Quality Assessment
 
+<p align="center">
+  <img src="assets/F1_Main.png" width="100%">
+</p>
+
 Dense per-pixel quality assessment for generated images using partial 3D references.
 
 **Input**: partial quality map + generated image + reference image
@@ -9,15 +13,11 @@ Dense per-pixel quality assessment for generated images using partial 3D referen
 
 PR-IQA is a 3-input U-Net encoder-decoder with cross-attention (59.2M parameters).
 
-```
-                  ref_img ──► img_encoder (shared) ──► kv
-                                                        │
-partial_map ──► map_encoder ──────────────────────► cross-attn ──┐
-                                                                  ├─► qfuse ──► decoder ──► quality_map
-generated_img ──► img_encoder (shared) ──────────► cross-attn ──┘
-```
+<p align="center">
+  <img src="assets/F2_Overview.png" width="100%">
+</p>
 
-- **Encoder**: 4 levels (48 → 96 → 192 → 384), TransformerLikeBlocks with ChannelGate + xformers Attention + FFN
+- **Encoder**: 4 levels (48 → 96 → 192 → 384), TransformerLikeBlocks with ChannelAttention + xformers Attention + FFN
 - **Decoder**: 3 levels with skip connections from the generated image encoder
 - **Output**: sigmoid-activated per-pixel quality map
 
@@ -102,11 +102,36 @@ python scripts/run_quality_pipeline.py \
 ```
 
 Output structure:
+
 ```
 output/
 ├── partial_map/    # FeatureMetric partial quality maps
 ├── partial_mask/   # Overlap masks
 └── quality_map/    # Final dense quality maps (from PR-IQA)
+```
+
+## Gradio Demo
+
+An interactive web demo is available via Gradio. Upload a query image and a reference image to run the full pipeline (FeatureMetric partial map generation → PR-IQA dense quality map inference).
+
+```bash
+# Install Gradio (if not already installed)
+pip install gradio
+
+# Launch the demo
+python gradio_app.py --checkpoint checkpoints/priqa_base.pt
+```
+
+Options:
+
+```bash
+python gradio_app.py \
+    --checkpoint checkpoints/priqa_base.pt \
+    --device auto \
+    --use-loftup \
+    --server-name 0.0.0.0 \
+    --server-port 7860 \
+    --share                  # Create a public Gradio link
 ```
 
 ## Training
@@ -140,11 +165,11 @@ training_data/
 
 ### Loss Function
 
-| Loss | Weight | Description |
-|------|--------|-------------|
-| JSD  | 1.0    | Jensen-Shannon divergence between predicted and target distributions |
-| Masked L1 | 0.5 | L1 loss weighted by the overlap mask |
-| Pearson | 0.25 | Pearson correlation coefficient (structural similarity) |
+| Loss      | Weight | Description                                                          |
+| --------- | ------ | -------------------------------------------------------------------- |
+| JSD       | 1.0    | Jensen-Shannon divergence between predicted and target distributions |
+| Masked L1 | 0.5    | L1 loss weighted by the overlap mask                                 |
+| Pearson   | 0.25   | Pearson correlation coefficient (structural similarity)              |
 
 ## Partial Map Generation
 
@@ -157,6 +182,7 @@ python scripts/generate_partial_maps.py \
 ```
 
 Requires `vggt` and `loftup` submodules:
+
 ```bash
 git submodule update --init --recursive
 ```
@@ -176,11 +202,17 @@ PR-IQA/
 │   └── dataset.py             # SceneDataset with augmentation
 ├── train.py                   # DDP training script
 ├── inference.py               # Single / batch inference
+├── gradio_app.py              # Interactive Gradio web demo
 ├── scripts/
 │   ├── generate_partial_maps.py
 │   └── run_priqa_pipeline.py
 ├── configs/
 │   └── default.yaml
+├── assets/
+│   ├── F1_Main.png            # Main figure
+│   ├── pr-iqa.png             # Logo
+│   ├── favicon.ico            # Favicon
+│   └── airlab.png
 ├── checkpoints/
 │   └── priqa_base.pt
 └── submodules/
@@ -194,15 +226,15 @@ See [`configs/default.yaml`](configs/default.yaml) for all hyperparameters.
 
 Key defaults:
 
-| Parameter | Value |
-|-----------|-------|
-| Base dim  | 48    |
-| Encoder blocks | [2, 3, 3, 4] |
-| Attention heads | [1, 2, 4, 8] |
-| Learning rate | 1e-4 |
-| AMP dtype | bfloat16 |
-| Input size (train) | 224 |
-| Input size (inference) | 256 |
+| Parameter              | Value        |
+| ---------------------- | ------------ |
+| Base dim               | 48           |
+| Encoder blocks         | [2, 3, 3, 4] |
+| Attention heads        | [1, 2, 4, 8] |
+| Learning rate          | 1e-4         |
+| AMP dtype              | bfloat16     |
+| Input size (train)     | 224          |
+| Input size (inference) | 256          |
 
 ## Requirements
 
@@ -211,9 +243,16 @@ Key defaults:
 - einops >= 0.7.0
 - xformers >= 0.0.22
 - pytorch3d >= 0.7.0
+- gradio (for web demo)
 - vggt (submodule)
 - loftup (submodule)
 
+## Acknowledgements
+
+This research was supported by the MSIT (Ministry of Science and ICT), Korea, under the ITRC (Information Technology Research Center) support program (IITP-2026-RS-2020-II201789), and the Artificial Intelligence Convergence Innovation Human Resources Development (IITP-2026-RS-2023-00254592) supervised by the IITP (Institute for Information & Communications Technology Planning & Evaluation).
+
 ## License
 
-TBD
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+Note: Submodule dependencies (`vggt`, `loftup`) are subject to their own respective licenses.

@@ -210,5 +210,3 @@ __marimo__/
 checkpoints/*.pt
 checkpoints/*.pth
 runs/
-submodules/vggt/
-submodules/loftup/
