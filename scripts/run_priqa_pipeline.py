@@ -8,26 +8,15 @@ Given a set of images (generated + references), this script:
   3. Saves partial maps, overlap masks, and final quality maps
 
 Usage:
-    # Minimal: generated images + reference images
     python scripts/run_quality_pipeline.py \
         --generated_dir /path/to/generated \
         --reference_dir /path/to/references \
         --checkpoint checkpoints/priqa_base.pt \
         --output_dir /path/to/output
 
-    # With explicit partial maps (skip FeatureMetric, run PR-IQA only)
-    python scripts/run_quality_pipeline.py \
-        --generated_dir /path/to/generated \
-        --reference_dir /path/to/references \
-        --partial_map_dir /path/to/partial_maps \
-        --mask_dir /path/to/masks \
-        --checkpoint checkpoints/priqa_base.pt \
-        --output_dir /path/to/output \
-        --skip_feature_metric
-
 Dependencies:
     - Core: torch, torchvision, einops, xformers
-    - FeatureMetric (optional): vggt, loftup, pytorch3d (submodules)
+    - FeatureMetric: vggt, loftup, pytorch3d (submodules)
 """
 
 import argparse
@@ -324,15 +313,6 @@ def main():
                         help="Output directory for all results")
     parser.add_argument("--device", type=str, default="cuda")
 
-    # Optional: skip FeatureMetric if partial maps already exist
-    parser.add_argument("--skip_feature_metric", action="store_true",
-                        help="Skip partial map generation (use existing maps)")
-    parser.add_argument("--partial_map_dir", type=str, default=None,
-                        help="Existing partial map directory (with --skip_feature_metric)")
-    parser.add_argument("--mask_dir", type=str, default=None,
-                        help="Existing mask directory (with --skip_feature_metric)")
-
-    # FeatureMetric options
     parser.add_argument("--use_loftup", action="store_true",
                         help="Use LoftUp for feature upsampling")
 
@@ -360,15 +340,10 @@ def main():
     print(f"{'=' * 60}")
 
     # Step 1: Partial map generation
-    if args.skip_feature_metric:
-        pmap_dir = Path(args.partial_map_dir) if args.partial_map_dir else output_dir / "partial_map"
-        mask_dir = Path(args.mask_dir) if args.mask_dir else output_dir / "partial_mask"
-        print(f"[Step 1] Skipped (using existing maps from {pmap_dir})")
-    else:
-        pmap_dir, mask_dir = run_feature_metric(
-            generated_paths, reference_paths, output_dir, device,
-            use_loftup=args.use_loftup,
-        )
+    pmap_dir, mask_dir = run_feature_metric(
+        generated_paths, reference_paths, output_dir, device,
+        use_loftup=args.use_loftup,
+    )
 
     # Step 2: PR-IQA inference
     scores = run_priqa_inference(

@@ -2,27 +2,19 @@
 PR-IQA inference: Generate dense quality maps.
 
 Pipeline:
-  partial_map + generated_image + reference_image → PR-IQA → quality_map
+  generated_image + reference_image → FeatureMetric (partial map) → PR-IQA → quality_map
 
 Usage:
-    # Single image inference
     python inference.py \
-        --partial_map partial.png \
         --generated gen.jpg \
         --reference ref.jpg \
-        --checkpoint checkpoints/epoch003.pt \
+        --checkpoint checkpoints/priqa_base.pt \
         --output quality_map.png
-
-    # Batch inference on a directory
-    python inference.py \
-        --input_dir /path/to/interval \
-        --checkpoint checkpoints/epoch003.pt
 """
 
 import argparse
-import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -86,6 +78,67 @@ def build_mask_pyramid(mask_whole: torch.Tensor):
     )
 
 
+def generate_partial_map(
+    generated_path: str,
+    reference_path: str,
+    device: str = "cuda",
+    use_loftup: bool = True,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Generate partial map and overlap mask using FeatureMetric.
+
+    Returns:
+        partial_map: (1, 1, S, S) tensor in [0, 1]
+        mask: (1, 1, S, S) tensor in [0, 1]
+    """
+    from pr_iqa.partial_map import FeatureMetric
+
+    metric = FeatureMetric(img_size=IMG_SIZE, use_vggt=True, use_loftup=use_loftup)
+    metric = metric.to(device).eval()
+
+    gen_img = np.array(Image.open(generated_path).convert("RGB"))
+    ref_img = np.array(Image.open(reference_path).convert("RGB"))
+
+    gen_t = torch.from_numpy(gen_img).permute(2, 0, 1).float() / 255.0
+    ref_t = torch.from_numpy(ref_img).permute(2, 0, 1).float() / 255.0
+
+    gen_t = F.interpolate(gen_t.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False).squeeze(0)
+    ref_t = F.interpolate(ref_t.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False).squeeze(0)
+
+    images = torch.stack([gen_t, ref_t], dim=0).to(device)
+
+    score, mask, score_map, _ = metric(
+        device=device,
+        images=images,
+        return_overlap_mask=True,
+        return_score_map=True,
+        partial_generation=True,
+    )
+
+    if score_map is not None:
+        smap = score_map[0].detach().float().cpu().numpy()
+        if smap.ndim == 1:
+            side = int(np.sqrt(smap.shape[0]))
+            smap = smap.reshape(side, side)
+        smap = np.clip(smap, 0, 1)
+        pmap_t = torch.from_numpy(smap).unsqueeze(0).unsqueeze(0)
+        pmap_t = F.interpolate(pmap_t, size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False)
+    else:
+        pmap_t = torch.zeros(1, 1, IMG_SIZE, IMG_SIZE)
+
+    if mask is not None:
+        msk = mask[0].detach().float().cpu().numpy()
+        if msk.ndim == 3:
+            msk = msk[0]
+        msk = np.clip(msk, 0, 1)
+        mask_t = torch.from_numpy(msk).unsqueeze(0).unsqueeze(0)
+        mask_t = F.interpolate(mask_t, size=(IMG_SIZE, IMG_SIZE), mode="nearest")
+    else:
+        mask_t = torch.ones(1, 1, IMG_SIZE, IMG_SIZE)
+
+    print(f"[FeatureMetric] score={score:.4f}")
+    return pmap_t, mask_t
+
+
 def load_model(checkpoint_path: str, device: str = "cuda"):
     """Load PR-IQA model from checkpoint."""
     model = build_priqa(out_channels=1)
@@ -144,21 +197,17 @@ def predict_quality_map(
 
 def run_single(
     model, device,
-    partial_map_path: str,
     generated_path: str,
     reference_path: str,
-    mask_path: str = None,
     output_path: str = "quality_map.png",
+    use_loftup: bool = True,
 ):
-    """Run inference on a single sample."""
-    pmap = GREY_TRANSFORM(Image.open(partial_map_path).convert("L")).unsqueeze(0)
+    """Run inference on a single sample (end-to-end)."""
+    print("[PR-IQA] Generating partial map...")
+    pmap, mask = generate_partial_map(generated_path, reference_path, device, use_loftup)
+
     gen = RGB_TRANSFORM(Image.open(generated_path).convert("RGB")).unsqueeze(0)
     ref = RGB_TRANSFORM(Image.open(reference_path).convert("RGB")).unsqueeze(0)
-
-    if mask_path and Path(mask_path).exists():
-        mask = GREY_TRANSFORM(Image.open(mask_path).convert("L")).unsqueeze(0)
-    else:
-        mask = torch.ones(1, 1, IMG_SIZE, IMG_SIZE)
 
     qmap = predict_quality_map(model, pmap, gen, ref, mask, device)
 
@@ -170,110 +219,23 @@ def run_single(
     print(f"[PR-IQA] Saved: {output_path} (mean={qmap.mean():.4f})")
 
 
-def run_batch(model, device, input_dir: str, output_dirname: str = "pr_iqa_output"):
-    """Run inference on all images in a directory structure.
-
-    Expects input_dir to contain:
-      - diffusion/  (generated images)
-      - partial_map/ (partial quality maps)
-      - partial_mask/ (overlap masks)
-      - gt/ (reference images)
-    """
-    _num = re.compile(r"(\d+)")
-    def natural_key(s):
-        return [int(t) if t.isdigit() else t.lower() for t in _num.split(s)]
-
-    input_dir = Path(input_dir)
-    diff_dir = input_dir / "diffusion"
-    pmap_dir = input_dir / "partial_map"
-    mask_dir = input_dir / "partial_mask"
-    gt_dir = input_dir / "gt"
-    out_dir = input_dir / output_dirname
-
-    diff_files = sorted(
-        [p for p in diff_dir.iterdir() if p.suffix.lower() in ALLOWED_EXTS],
-        key=lambda p: natural_key(p.name),
-    )
-
-    gt_files = sorted(
-        [p for p in gt_dir.iterdir() if p.suffix.lower() in ALLOWED_EXTS],
-        key=lambda p: natural_key(p.name),
-    ) if gt_dir.exists() else []
-
-    print(f"[PR-IQA] Processing {len(diff_files)} images from {input_dir}")
-
-    for i, dif_path in enumerate(diff_files):
-        pmap_path = pmap_dir / (dif_path.stem + ".png")
-        mask_path = mask_dir / (dif_path.stem + ".png")
-
-        # Select nearest reference
-        if gt_files:
-            ref_path = gt_files[0] if i < len(diff_files) // 2 else gt_files[-1]
-        else:
-            ref_path = None
-
-        if not pmap_path.exists():
-            pmap_img = torch.zeros(1, 1, IMG_SIZE, IMG_SIZE)
-        else:
-            pmap_img = GREY_TRANSFORM(Image.open(pmap_path).convert("L")).unsqueeze(0)
-
-        gen_img = RGB_TRANSFORM(Image.open(dif_path).convert("RGB")).unsqueeze(0)
-
-        if ref_path and ref_path.exists():
-            ref_img = RGB_TRANSFORM(Image.open(ref_path).convert("RGB")).unsqueeze(0)
-        else:
-            ref_img = torch.zeros(1, 3, IMG_SIZE, IMG_SIZE)
-
-        if mask_path.exists():
-            mask = GREY_TRANSFORM(Image.open(mask_path).convert("L")).unsqueeze(0)
-        else:
-            mask = torch.ones(1, 1, IMG_SIZE, IMG_SIZE)
-
-        qmap = predict_quality_map(model, pmap_img, gen_img, ref_img, mask, device)
-
-        save_path = out_dir / (dif_path.stem + ".png")
-        pil = Image.fromarray((np.clip(qmap, 0, 1) * 255.0 + 0.5).astype(np.uint8), mode="L")
-        pil = OUTPUT_TRANSFORM(pil)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        pil.save(save_path)
-
-        if (i + 1) % 10 == 0 or (i + 1) == len(diff_files):
-            print(f"  [{i + 1}/{len(diff_files)}] mean_score={qmap.mean():.4f}")
-
-    print(f"[PR-IQA] Done. Output: {out_dir}")
-
-
 # ── CLI ──
 
 def main():
     parser = argparse.ArgumentParser(description="PR-IQA Inference")
     parser.add_argument("--checkpoint", type=str, required=True, help="PR-IQA checkpoint path")
     parser.add_argument("--device", type=str, default="cuda")
-
-    # Single image mode
-    parser.add_argument("--partial_map", type=str, default=None)
-    parser.add_argument("--generated", type=str, default=None)
-    parser.add_argument("--reference", type=str, default=None)
-    parser.add_argument("--mask", type=str, default=None)
+    parser.add_argument("--generated", type=str, required=True, help="Query / generated image path")
+    parser.add_argument("--reference", type=str, required=True, help="Reference image path")
     parser.add_argument("--output", type=str, default="quality_map.png")
-
-    # Batch mode
-    parser.add_argument("--input_dir", type=str, default=None, help="Directory for batch inference")
-    parser.add_argument("--output_dirname", type=str, default="pr_iqa_output")
+    parser.add_argument("--use_loftup", action="store_true", default=True,
+                        help="Use LoftUp upsampling in FeatureMetric")
 
     args = parser.parse_args()
 
     device = args.device if torch.cuda.is_available() else "cpu"
     model = load_model(args.checkpoint, device)
-
-    if args.input_dir:
-        run_batch(model, device, args.input_dir, args.output_dirname)
-    elif args.partial_map and args.generated and args.reference:
-        run_single(model, device, args.partial_map, args.generated,
-                   args.reference, args.mask, args.output)
-    else:
-        parser.print_help()
-        print("\nProvide either --input_dir for batch or --partial_map/--generated/--reference for single.")
+    run_single(model, device, args.generated, args.reference, args.output, args.use_loftup)
 
 
 if __name__ == "__main__":

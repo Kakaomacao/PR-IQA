@@ -6,8 +6,10 @@
 
 Dense per-pixel quality assessment for generated images using partial 3D references.
 
-**Input**: partial quality map + generated image + reference image
+**Input**: query image (generated) + reference image
 **Output**: dense quality map (per-pixel score in [0, 1])
+
+The pipeline internally generates a partial quality map via FeatureMetric (DINOv2 + VGGT + PyTorch3D), then feeds it into the PR-IQA network to produce the final dense quality map.
 
 ## Architecture
 
@@ -50,7 +52,6 @@ pip install -e .
 ```bash
 python inference.py \
     --checkpoint checkpoints/priqa_base.pt \
-    --partial_map examples/partial_map.png \
     --generated examples/generated.png \
     --reference examples/reference.png \
     --output output/quality_map.png
@@ -58,56 +59,34 @@ python inference.py \
 
 ### Inference (batch)
 
-Expects a directory with subdirectories: `diffusion/`, `partial_map/`, `partial_mask/`, `gt/`.
-
 ```bash
-python inference.py \
-    --checkpoint checkpoints/priqa_base.pt \
-    --input_dir /path/to/interval
-```
-
-### Python API
-
-```python
-from pr_iqa import build_priqa
-from inference import load_model, predict_quality_map
-
-model = load_model("checkpoints/priqa_base.pt", device="cuda")
-
-# quality_map: np.ndarray (H, W), values in [0, 1]
-quality_map = predict_quality_map(
-    model, partial_map, generated_img, reference_img, mask, device="cuda"
-)
-```
-
-### End-to-end pipeline (FeatureMetric + PR-IQA)
-
-```bash
-# Full pipeline: partial map generation → dense quality map
 python scripts/run_quality_pipeline.py \
     --generated_dir /path/to/generated_images \
     --reference_dir /path/to/reference_images \
     --checkpoint checkpoints/priqa_base.pt \
     --output_dir output/
-
-# PR-IQA only (skip FeatureMetric, use existing partial maps)
-python scripts/run_quality_pipeline.py \
-    --generated_dir /path/to/generated_images \
-    --reference_dir /path/to/reference_images \
-    --partial_map_dir /path/to/partial_maps \
-    --mask_dir /path/to/masks \
-    --checkpoint checkpoints/priqa_base.pt \
-    --output_dir output/ \
-    --skip_feature_metric
 ```
 
 Output structure:
 
 ```
 output/
-├── partial_map/    # FeatureMetric partial quality maps
+├── partial_map/    # Internally generated partial quality maps
 ├── partial_mask/   # Overlap masks
 └── quality_map/    # Final dense quality maps (from PR-IQA)
+```
+
+### Python API
+
+```python
+from inference import load_model, predict_quality_map
+
+model = load_model("checkpoints/priqa_base.pt", device="cuda")
+
+# quality_map: np.ndarray (H, W), values in [0, 1]
+quality_map = predict_quality_map(
+    model, generated_img, reference_img, device="cuda"
+)
 ```
 
 ## Gradio Demo
@@ -173,7 +152,9 @@ training_data/
 
 ## Partial Map Generation
 
-Generate training data (partial quality maps) using FeatureMetric (DINOv2 + VGGT + PyTorch3D):
+Partial quality maps are automatically generated internally via FeatureMetric (DINOv2 + VGGT + PyTorch3D) during inference. No separate step is required.
+
+For generating training data offline, you can use the standalone script:
 
 ```bash
 python scripts/generate_partial_maps.py \
