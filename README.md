@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://kakaomacao.github.io/pr-iqa-project-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
-  <a href="#"><img src="https://img.shields.io/badge/arXiv-coming%20soon-lightgrey" alt="arXiv"></a>
+  <a href="https://arxiv.org/abs/2604.04576"><img src="https://img.shields.io/badge/arXiv-2604.04576-b31b1b" alt="arXiv"></a>
 </p>
 
 <p align="center">
