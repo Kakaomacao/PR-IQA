@@ -31,6 +31,8 @@ import torch.nn.functional as F
 import torchvision.transforms as T
 from PIL import Image
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # ── Constants ──
 IMG_SIZE = 256
 OUTPUT_SIZE = (294, 518)
@@ -201,24 +203,13 @@ def run_priqa_inference(
     device: str,
 ):
     """Run PR-IQA model on partial maps to produce dense quality maps."""
-    from pr_iqa.model import build_priqa
+    from inference import load_model
 
     qmap_dir = output_dir / "quality_map"
     qmap_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[Step 2] Loading PR-IQA model from {checkpoint}...")
-    model = build_priqa(out_channels=1)
-    ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
-
-    if isinstance(ckpt, dict) and "model" in ckpt:
-        state_dict = ckpt["model"]
-    elif isinstance(ckpt, dict) and "state_dict" in ckpt:
-        state_dict = ckpt["state_dict"]
-    else:
-        state_dict = ckpt
-
-    model.load_state_dict(state_dict)
-    model.to(device).eval()
+    model = load_model(checkpoint, device)
     print(f"  Model loaded ({sum(p.numel() for p in model.parameters()) / 1e6:.1f}M params)")
 
     n_gen = len(generated_paths)

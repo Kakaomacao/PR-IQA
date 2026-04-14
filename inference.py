@@ -27,6 +27,7 @@ from pr_iqa.model import build_priqa
 
 # ── Constants ──
 IMG_SIZE = 256
+FEATURE_METRIC_SIZE = 224  # must be a multiple of DINOv2 patch size (14)
 OUTPUT_SIZE = (294, 518)
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
@@ -92,7 +93,7 @@ def generate_partial_map(
     """
     from pr_iqa.partial_map import FeatureMetric
 
-    metric = FeatureMetric(img_size=IMG_SIZE, use_vggt=True, use_loftup=use_loftup)
+    metric = FeatureMetric(img_size=FEATURE_METRIC_SIZE, use_vggt=True, use_loftup=use_loftup)
     metric = metric.to(device).eval()
 
     gen_img = np.array(Image.open(generated_path).convert("RGB"))
@@ -101,8 +102,8 @@ def generate_partial_map(
     gen_t = torch.from_numpy(gen_img).permute(2, 0, 1).float() / 255.0
     ref_t = torch.from_numpy(ref_img).permute(2, 0, 1).float() / 255.0
 
-    gen_t = F.interpolate(gen_t.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False).squeeze(0)
-    ref_t = F.interpolate(ref_t.unsqueeze(0), size=(IMG_SIZE, IMG_SIZE), mode="bilinear", align_corners=False).squeeze(0)
+    gen_t = F.interpolate(gen_t.unsqueeze(0), size=(FEATURE_METRIC_SIZE, FEATURE_METRIC_SIZE), mode="bilinear", align_corners=False).squeeze(0)
+    ref_t = F.interpolate(ref_t.unsqueeze(0), size=(FEATURE_METRIC_SIZE, FEATURE_METRIC_SIZE), mode="bilinear", align_corners=False).squeeze(0)
 
     images = torch.stack([gen_t, ref_t], dim=0).to(device)
 
@@ -139,22 +140,37 @@ def generate_partial_map(
     return pmap_t, mask_t
 
 
-def load_model(checkpoint_path: str, device: str = "cuda"):
-    """Load PR-IQA model from checkpoint."""
-    model = build_priqa(out_channels=1)
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+def load_model(checkpoint: str, device: str = "cuda"):
+    """Load PR-IQA model from a local checkpoint path or Hugging Face repo ID.
 
-    if isinstance(ckpt, dict) and "model" in ckpt:
-        state_dict = ckpt["model"]
-    elif isinstance(ckpt, dict) and "state_dict" in ckpt:
-        state_dict = ckpt["state_dict"]
-    else:
-        state_dict = ckpt
+    Examples:
+        load_model("checkpoints/priqa_base.pt")
+        load_model("kakaomacao/PR-IQA")
+    """
+    if Path(checkpoint).exists():
+        model = build_priqa(out_channels=1)
+        ckpt = torch.load(checkpoint, map_location="cpu", weights_only=False)
 
-    model.load_state_dict(state_dict)
-    model.to(device).eval()
-    print(f"[PR-IQA] Loaded checkpoint: {checkpoint_path}")
-    return model
+        if isinstance(ckpt, dict) and "model" in ckpt:
+            state_dict = ckpt["model"]
+        elif isinstance(ckpt, dict) and "state_dict" in ckpt:
+            state_dict = ckpt["state_dict"]
+        else:
+            state_dict = ckpt
+
+        model.load_state_dict(state_dict)
+        model.to(device).eval()
+        print(f"[PR-IQA] Loaded checkpoint: {checkpoint}")
+        return model
+
+    if "/" in checkpoint and not checkpoint.startswith(("/", ".", "~")):
+        from pr_iqa.model import PRIQA
+        print(f"[PR-IQA] Loading from Hugging Face: {checkpoint}")
+        model = PRIQA.from_pretrained(checkpoint)
+        model.to(device).eval()
+        return model
+
+    raise FileNotFoundError(f"Checkpoint not found: {checkpoint}")
 
 
 # ── Core Inference ──

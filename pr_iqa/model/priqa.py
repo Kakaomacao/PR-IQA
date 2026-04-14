@@ -20,6 +20,7 @@ Architecture:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from huggingface_hub import PyTorchModelHubMixin
 
 from .layers import (
     GatedPartialEmb,
@@ -31,7 +32,14 @@ from .layers import (
 )
 
 
-class PRIQA(nn.Module):
+class PRIQA(
+    nn.Module,
+    PyTorchModelHubMixin,
+    repo_url="https://github.com/Kakaomacao/PR-IQA",
+    pipeline_tag="image-to-image",
+    license="apache-2.0",
+    tags=["image-quality-assessment", "partial-reference", "iqa", "3d"],
+):
     """Partial-Reference Image Quality Assessment model.
 
     Args:

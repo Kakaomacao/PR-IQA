@@ -3,6 +3,7 @@
 <p align="center">
   <a href="https://kakaomacao.github.io/pr-iqa-project-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
   <a href="https://arxiv.org/abs/2604.04576"><img src="https://img.shields.io/badge/arXiv-2604.04576-b31b1b" alt="arXiv"></a>
+  <a href="https://huggingface.co/kakaomacao/PR-IQA"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow" alt="Hugging Face Model"></a>
 </p>
 
 <p align="center">
@@ -52,11 +53,28 @@ pip install -e .
 
 ## Quick Start
 
+### Model checkpoint
+
+You can use a local checkpoint or load directly from the [Hugging Face Hub](https://huggingface.co/kakaomacao/PR-IQA):
+
+```python
+from pr_iqa.model import PRIQA
+
+# From Hugging Face Hub
+model = PRIQA.from_pretrained("kakaomacao/PR-IQA")
+```
+
+All inference scripts below also accept a HF repo ID in place of `--checkpoint`:
+
+```bash
+--checkpoint kakaomacao/PR-IQA
+```
+
 ### Inference (single image)
 
 ```bash
 python inference.py \
-    --checkpoint checkpoints/priqa_base.pt \
+    --checkpoint kakaomacao/PR-IQA \
     --generated examples/generated.png \
     --reference examples/reference.png \
     --output output/quality_map.png
