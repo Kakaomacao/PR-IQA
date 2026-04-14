@@ -4,6 +4,7 @@
   <a href="https://kakaomacao.github.io/pr-iqa-project-page/"><img src="https://img.shields.io/badge/Project-Page-blue" alt="Project Page"></a>
   <a href="https://arxiv.org/abs/2604.04576"><img src="https://img.shields.io/badge/arXiv-2604.04576-b31b1b" alt="arXiv"></a>
   <a href="https://huggingface.co/kakaomacao/PR-IQA"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-yellow" alt="Hugging Face Model"></a>
+  <a href="https://huggingface.co/spaces/2cu1001/PR-IQA"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Gradio Demo-orange" alt="Hugging Face Gradio Demo"></a>
 </p>
 
 <p align="center">
